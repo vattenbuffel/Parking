@@ -128,11 +128,11 @@ def get_intersections_between_lines(xsa, ysa, xsb, ysb, remove_duplicates=True):
 
 #@numba.njit
 def get_polygon_intersection_points(xsa, ysa, xsb, ysb):
+    # Given 2 polygons return all points that make up the intersetion
     assert xsa[0] == xsa[-1]
     assert ysa[0] == ysa[-1]
     assert xsb[0] == xsb[-1]
     assert ysb[0] == ysb[-1]
-    # Given 2 polygons return all points that make up the intersetion
     xs, ys = get_intersections_between_lines(xsa, ysa, xsb, ysb)
 
     xs_, ys_ = get_points_in_polygon(xsa, ysa, xsb[:-1], ysb[:-1])
@@ -230,6 +230,9 @@ def get_area_of_polygon(xs, ys):
         x1, y1 = xs[i+1], ys[i+1]
 
         A += determinant_2d(x0, x1, y0, y1)
+    
+    if A < 0:
+        A = -A
 
     return A/2
 

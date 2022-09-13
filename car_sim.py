@@ -3,6 +3,17 @@ from numpy import cos, sin, tan
 import pygame
 import time
 from rolling_average import RollingAverage
+from polygon_math import get_area_of_polygon, get_polygon_intersection_points, polygon_from_points
+import numba
+
+class ParkingArea:
+    def __init__(self, xs, ys) -> None:
+        self.xs = xs
+        self.ys = ys
+
+    def draw(self):
+        ps = tuple((pos_to_pix(self.xs[i], self.ys[i])) for i in range(len(self.xs)) )
+        pygame.draw.polygon(screen, GREEN, ps)
 
 class Wheel:
     def __init__(self, w, h, x_offset_to_car, y_offset_to_car) -> None:
@@ -34,10 +45,10 @@ class Wheel:
 
         pygame.draw.polygon(screen, BLACK, (p0, p1, p2, p3))
 
-
+# @numba.njit
 def model(x, u1, u2, dt, L):
-    # x is state vector [x, y, theta]
-    # u1 is acc, u2 is steering acc
+    # x is state vector [x, y, theta, phi]
+    # u1 is vel, u2 is steering ang
 
     theta = x[2, 0]
 
@@ -63,8 +74,8 @@ def pos_to_pix(x, y):
 def add_xy_and_offset(p, x, y):
     return p[0] + x + width/2, height/2 - y - 1 - p[1]
 
-
-def draw_car(x, y, theta, phi):
+#@numba.njit
+def get_car_xs_ys(x, y, theta):
     h = car_height
     w = car_width
     theta0 = np.arctan2(h/2, w)   #angle at which p1 starts at
@@ -74,26 +85,34 @@ def draw_car(x, y, theta, phi):
     p2 = (d * cos(theta - theta0), d * sin(theta - theta0))
     p3 = (h/2*cos(theta - np.pi/2), h/2*sin(theta - np.pi/2))
 
-    p0 = add_xy_and_offset(p0, x, y)
-    p1 = add_xy_and_offset(p1, x, y)
-    p2 = add_xy_and_offset(p2, x, y)
-    p3 = add_xy_and_offset(p3, x, y)
+    return [p0[0]+x, p1[0]+x, p2[0]+x, p3[0]+x], [p0[1]+y, p1[1]+y, p2[1]+y, p3[1]+y]
+
+
+def draw_car(car_xs, car_ys):
+    p0 = (car_xs[0], car_ys[0])
+    p1 = (car_xs[1], car_ys[1])
+    p2 = (car_xs[2], car_ys[2])
+    p3 = (car_xs[3], car_ys[3])
+
+    p0 = pos_to_pix(*p0)
+    p1 = pos_to_pix(*p1)
+    p2 = pos_to_pix(*p2)
+    p3 = pos_to_pix(*p3)
 
     pygame.draw.polygon(screen, BLUE, (p0, p1, p2, p3))
 
-    surface = pygame.Surface(size)
-    pygame.draw.polygon(surface, GREEN, ((0, 100), (0, 200), (200, 200), (200, 300), (300, 150), (200, 0), (200, 100)))
-    surface = pygame.transform.rotate(surface, np.rad2deg(theta))
-    surface = pygame.transform.scale(surface, (arrow_size, arrow_size))
-    p = pos_to_pix(x_, y)
-    p = (p[0] - arrow_size/2, p[1] - arrow_size/2 )
-    # screen.blit(surface, p)
+def get_car_parking_area_overlap(pa_xs, pa_ys, car_xs, car_ys):
+    car_xs.append(car_xs[0])
+    car_ys.append(car_ys[0])
+    xs, ys = get_polygon_intersection_points(pa_xs, pa_ys, car_xs, car_ys)
+    if xs != []:
+        xs, ys = polygon_from_points(xs, ys)
+        intersection_area = get_area_of_polygon(xs, ys)
+        car_area = get_area_of_polygon(car_xs, car_ys)
+        return intersection_area / car_area
 
-    # Draw wheels
-    wheel1.draw(x, y, theta, phi)
-    wheel2.draw(x, y, theta, phi)
-    wheel3.draw(x, y, theta, 0)
-    wheel4.draw(x, y, theta, 0)
+    return 0
+
 
 
 x = np.zeros((4, 1))
@@ -112,7 +131,7 @@ wheel_height = 10
 screen = pygame.display.set_mode((width,height))
 pygame.font.init()
 my_font = pygame.font.SysFont(None, 30)
-fps = RollingAverage(1000)
+fps = RollingAverage(100)
 t_start = time.time()
 
 BLACK = (0,0,0)
@@ -127,19 +146,31 @@ wheel2 = Wheel(wheel_width, wheel_height, car_width - wheel_width/2 - 5, car_hei
 wheel3 = Wheel(wheel_width, wheel_height, wheel_width/2 + 5, car_height/2 - wheel_height/2 - 5)
 wheel4 = Wheel(wheel_width, wheel_height, wheel_width/2 + 5, -car_height/2 + wheel_height/2 + 5)
 
+pa = ParkingArea([100, 300, 300, 100, 100], [100, 100, 300, 300, 100])
+
 
 while True:
     t_start = time.time()
 
     screen.fill(WHITE)
+    pa.draw()
+
     x_ = x[0, 0]
     y = x[1, 0]
     theta = x[2, 0]
     phi = x[3, 0]
 
-    draw_car(x_, y, theta, phi)
+    car_xs , car_ys = get_car_xs_ys(x_, y, theta)
+    draw_car(car_xs.copy(), car_ys.copy())
+    # Draw wheels
+    wheel1.draw(x_, y, theta, phi)
+    wheel2.draw(x_, y, theta, phi)
+    wheel3.draw(x_, y, theta, 0)
+    wheel4.draw(x_, y, theta, 0)
 
-    text_surface = my_font.render(f"u1: {u1:.2f}, u2: {np.rad2deg(u2):.2f}, fps: {fps.get():.2f}", True, BLACK)
+    car_pa_overlap = get_car_parking_area_overlap(pa.xs, pa.ys, car_xs, car_ys)
+    
+    text_surface = my_font.render(f"u1: {u1:.2f}, u2: {np.rad2deg(u2):.2f}, fps: {fps.get():.2f}, pa: {car_pa_overlap:.2f}", True, BLACK)
     screen.blit(text_surface, (50,50))
 
     pygame.display.update()
