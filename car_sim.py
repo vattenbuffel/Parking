@@ -1,37 +1,53 @@
-import matplotlib.pyplot as plt
 import numpy as np
 from numpy import cos, sin, tan
 import pygame
 
+class Wheel:
+    def __init__(self, w, h, x_offset_to_car, y_offset_to_car) -> None:
+        self.alpha = np.arctan2(h/2, w/2)
+        self.r = ((w/2)**2 + (h/2)**2)**0.5
+        self.x_offset_to_car = x_offset_to_car
+        self.y_offset_to_car = y_offset_to_car
+        self.d_offset_to_car = (x_offset_to_car**2 + y_offset_to_car**2)**0.5
+        self.alpha_offset_to_car = np.arctan2(y_offset_to_car, x_offset_to_car)
+
+    def draw(self, car_x, car_y, theta, phi):
+        r = self.r
+        alpha = self.alpha
+
+        p0 = (r * np.cos(theta + alpha + phi), r * np.sin(theta + alpha + phi))
+        p1 = (r * np.cos(theta + np.pi - alpha + phi), r * np.sin(theta + np.pi - alpha + phi))
+        p2 = (r * np.cos(theta + alpha + np.pi + phi), r * np.sin(theta + alpha + np.pi + phi))
+        p3 = (r * np.cos(theta - alpha + phi), r * np.sin(theta - alpha + phi))
+
+        d = self.d_offset_to_car
+        alpha = self.alpha_offset_to_car
+        x_offset = d * np.cos(alpha + theta)  
+        y_offset = d * np.sin(alpha + theta)  
+
+        p0 = add_xy_and_offset(p0, car_x+x_offset, car_y+y_offset)
+        p1 = add_xy_and_offset(p1, car_x+x_offset, car_y+y_offset)
+        p2 = add_xy_and_offset(p2, car_x+x_offset, car_y+y_offset)
+        p3 = add_xy_and_offset(p3, car_x+x_offset, car_y+y_offset)
+
+        pygame.draw.polygon(screen, BLACK, (p0, p1, p2, p3))
+
+
 def model(x, u1, u2, dt, L):
-    # x is state vector [x, y, theta, phi, dx, dy, dtheta, dphi]
+    # x is state vector [x, y, theta]
     # u1 is acc, u2 is steering acc
 
     theta = x[2, 0]
-    phi = x[3, 0]
-    dx = x[4, 0]
-    dy = x[5, 0]
-    dtheta = x[6, 0]
-    dphi = x[7, 0]
 
     v = np.array([
-        dx,
-        dy,
-        dtheta, 
-        dphi,
         cos(theta)*u1,
         sin(theta)*u1,
-        1/L*tan(phi)*u1,
-        u2,
-    ]).reshape(8, 1)
+        1/L*tan(u2)*u1,
+        0,
+    ]).reshape(4, 1)
 
     x1 = x + v*dt
-    # Limit dtheta
-    x1[6] = np.clip(x1[6], -np.deg2rad(10), np.deg2rad(10))
-    
-    #limit phi and dphi
-    x1[7] = np.clip(x1[7], -np.deg2rad(30), np.deg2rad(30))
-    x1[3] = np.clip(x1[3], -np.deg2rad(45), np.deg2rad(45))
+    x1[3] = u2
 
     return x1
 
@@ -42,28 +58,11 @@ def pos_to_pix(x, y):
     y -= height/2
     return x, y
 
-def blitRotate(surf, image, pos, originPos, angle):
-    # offset from pivot to center
-    image_rect = image.get_rect(topleft = (pos[0] - originPos[0], pos[1]-originPos[1]))
-    offset_center_to_pivot = pygame.math.Vector2(pos) - image_rect.center
-    
-    # roatated offset from pivot to center
-    rotated_offset = offset_center_to_pivot.rotate(-angle)
+def add_xy_and_offset(p, x, y):
+    return p[0] + x + width/2, height/2 - y - 1 - p[1]
 
-    # roatetd image center
-    rotated_image_center = (pos[0] - rotated_offset.x, pos[1] - rotated_offset.y)
 
-    # get a rotated image
-    rotated_image = pygame.transform.rotate(image, angle)
-    rotated_image_rect = rotated_image.get_rect(center = rotated_image_center)
-
-    # rotate and blit the image
-    surf.blit(rotated_image, rotated_image_rect)
-  
-    # draw rectangle around the image
-    pygame.draw.rect(surf, (255, 0, 0), (*rotated_image_rect.topleft, *rotated_image.get_size()),2)
-
-def draw_car(x, y, theta):
+def draw_car(x, y, theta, phi):
     h = car_height
     w = car_width
     theta0 = np.arctan2(h/2, w)   #angle at which p1 starts at
@@ -73,9 +72,6 @@ def draw_car(x, y, theta):
     p2 = (d * cos(theta - theta0), d * sin(theta - theta0))
     p3 = (h/2*cos(theta - np.pi/2), h/2*sin(theta - np.pi/2))
 
-    def add_xy_and_offset(p, x, y):
-        return p[0] + x + width/2, height/2 - y - 1 - p[1]
-
     p0 = add_xy_and_offset(p0, x, y)
     p1 = add_xy_and_offset(p1, x, y)
     p2 = add_xy_and_offset(p2, x, y)
@@ -83,27 +79,35 @@ def draw_car(x, y, theta):
 
     pygame.draw.polygon(screen, BLUE, (p0, p1, p2, p3))
 
-
     surface = pygame.Surface(size)
     pygame.draw.polygon(surface, GREEN, ((0, 100), (0, 200), (200, 200), (200, 300), (300, 150), (200, 0), (200, 100)))
     surface = pygame.transform.rotate(surface, np.rad2deg(theta))
     surface = pygame.transform.scale(surface, (arrow_size, arrow_size))
     p = pos_to_pix(x_, y)
     p = (p[0] - arrow_size/2, p[1] - arrow_size/2 )
-    screen.blit(surface, p)
+    # screen.blit(surface, p)
+
+    # Draw wheels
+    wheel1.draw(x, y, theta, phi)
+    wheel2.draw(x, y, theta, phi)
+    wheel3.draw(x, y, theta, 0)
+    wheel4.draw(x, y, theta, 0)
 
 
-x = np.zeros((8,1))
-x[2] = 1.57/2
+x = np.zeros((4, 1))
 u1 = 0
-u2 = 0.0
+# u2 = 0
+u2 = np.deg2rad(30)
 dt = 0.001
 L = 200
 
-width, height = (1280, 1280)
+# width, height = (1280, 1280)
+width, height = (720, 720)
 arrow_size = 16
 car_width = L
 car_height = 50
+wheel_width = 30
+wheel_height = 10
 screen = pygame.display.set_mode((width,height))
 pygame.font.init()
 my_font = pygame.font.SysFont(None, 30)
@@ -115,7 +119,11 @@ BLUE = (0, 0, 255)
 GREEN = (0, 255, 0)
 size = (300, 300)
 
-w_p, a_p, d_p, s_p = False, False, False, False
+wheel1 = Wheel(wheel_width, wheel_height, car_width - wheel_width/2 - 5, -car_height/2 + wheel_height/2 + 5)
+wheel2 = Wheel(wheel_width, wheel_height, car_width - wheel_width/2 - 5, car_height/2 - wheel_height/2 - 5)
+wheel3 = Wheel(wheel_width, wheel_height, wheel_width/2 + 5, car_height/2 - wheel_height/2 - 5)
+wheel4 = Wheel(wheel_width, wheel_height, wheel_width/2 + 5, -car_height/2 + wheel_height/2 + 5)
+
 
 while True:
     screen.fill(WHITE)
@@ -123,14 +131,10 @@ while True:
     y = x[1, 0]
     theta = x[2, 0]
     phi = x[3, 0]
-    dx = x[4, 0]
-    dy = x[5, 0]
-    dtheta = x[6, 0]
-    dphi = x[7, 0]
 
-    draw_car(x_, y, theta)
+    draw_car(x_, y, theta, phi)
 
-    text_surface = my_font.render(f"phi: {phi:.2f}, dphi: {dphi:.2f}, dtheta: {dtheta:.2f}, u1: {u1:.2f}, u2: {u2:.2f}", True, BLACK)
+    text_surface = my_font.render(f"u1: {u1:.2f}, u2: {np.rad2deg(u2):.2f}", True, BLACK)
     screen.blit(text_surface, (50,50))
 
     pygame.display.update()
@@ -141,39 +145,29 @@ while True:
             sys.exit(0)
         elif events.type == pygame.KEYDOWN:
             if events.dict['unicode'] == 'w':
-                w_p = True
-                u1 = 1
+                u1 = 5
             elif events.dict['unicode'] == 'a':
-                a_p = True
-                u2 = np.deg2rad(2)
+                u2 = np.deg2rad(30)
             elif events.dict['unicode'] == 'd':
-                d_p = True
-                u2 = np.deg2rad(-2)
+                u2 = np.deg2rad(-30)
             elif events.dict['unicode'] == 's':
-                s_p = True
-                u1 = -1
+                u1 = -5
             elif events.dict['unicode'] == '\x1b': # esc
                 exit(0)
             elif events.dict['unicode'] == '\x1b': # esc
                 exit(0)
             elif events.dict['unicode'] == ' ':
-                x = np.zeros((8,1))
+                x = np.zeros((4, 1))
         elif events.type == pygame.KEYUP:
             if events.dict['unicode'] == 'w':
-                w_p = False
+                u1 = 0
             elif events.dict['unicode'] == 'a':
-                a_p = False
+                u2 = 0
             elif events.dict['unicode'] == 'd':
-                d_p = False
+                u2 = 0
             elif events.dict['unicode'] == 's':
-                s_p = False
+                u1 = 0
 
-    if not w_p and not s_p:
-        # Break a bit
-        u1 = -(dx**2 + dy**2)**0.5
-    if not a_p and not d_p:
-        # Break a bit
-        u2 = -dphi
 
 
     for i in range(100):
