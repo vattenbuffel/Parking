@@ -1,6 +1,8 @@
 import numpy as np
 from numpy import cos, sin, tan
 import pygame
+import time
+from rolling_average import RollingAverage
 
 class Wheel:
     def __init__(self, w, h, x_offset_to_car, y_offset_to_car) -> None:
@@ -96,10 +98,9 @@ def draw_car(x, y, theta, phi):
 
 x = np.zeros((4, 1))
 u1 = 0
-# u2 = 0
-u2 = np.deg2rad(30)
+u2 = 0
 dt = 0.001
-L = 200
+L = 80
 
 # width, height = (1280, 1280)
 width, height = (720, 720)
@@ -111,6 +112,8 @@ wheel_height = 10
 screen = pygame.display.set_mode((width,height))
 pygame.font.init()
 my_font = pygame.font.SysFont(None, 30)
+fps = RollingAverage(1000)
+t_start = time.time()
 
 BLACK = (0,0,0)
 WHITE = (255,255,255)
@@ -126,6 +129,8 @@ wheel4 = Wheel(wheel_width, wheel_height, wheel_width/2 + 5, -car_height/2 + whe
 
 
 while True:
+    t_start = time.time()
+
     screen.fill(WHITE)
     x_ = x[0, 0]
     y = x[1, 0]
@@ -134,7 +139,7 @@ while True:
 
     draw_car(x_, y, theta, phi)
 
-    text_surface = my_font.render(f"u1: {u1:.2f}, u2: {np.rad2deg(u2):.2f}", True, BLACK)
+    text_surface = my_font.render(f"u1: {u1:.2f}, u2: {np.rad2deg(u2):.2f}, fps: {fps.get():.2f}", True, BLACK)
     screen.blit(text_surface, (50,50))
 
     pygame.display.update()
@@ -172,6 +177,9 @@ while True:
 
     for i in range(100):
         x = model(x, u1, u2, dt, L)
+
+    t_end = time.time()
+    fps.update(1/(t_end - t_start))
 
 
 
