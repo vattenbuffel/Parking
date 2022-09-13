@@ -45,7 +45,7 @@ class Wheel:
 
         pygame.draw.polygon(screen, BLACK, (p0, p1, p2, p3))
 
-# @numba.njit
+@numba.njit
 def model(x, u1, u2, dt, L):
     # x is state vector [x, y, theta, phi]
     # u1 is vel, u2 is steering ang
@@ -74,7 +74,7 @@ def pos_to_pix(x, y):
 def add_xy_and_offset(p, x, y):
     return p[0] + x + width/2, height/2 - y - 1 - p[1]
 
-#@numba.njit
+@numba.njit
 def get_car_xs_ys(x, y, theta):
     h = car_height
     w = car_width
