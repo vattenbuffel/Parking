@@ -161,6 +161,7 @@ def draw_scan_res(scan_res):
         if p is not None:
             draw_line(l[0], l[1], p[0], p[1])
 
+# @numba.njit
 def clean_pa_scan_lines(pa_scan, obstacle_scan):
     for key in pa_scan:
         obs_d, obs_l, obs_p = obstacle_scan[key]
@@ -279,8 +280,12 @@ while True:
                 u1 = 0
 
 
+    # Update car state and check for collision
+    x_temp = model(x, u1, u2, dt, L)
+    car_xs_temp , car_ys_temp = get_car_xs_ys(x_temp[0], x_temp[1], x_temp[2])
+    if ([], []) == get_polygon_intersection_points(car_xs, car_ys, map_xs, map_ys):
+        x = x_temp
 
-    x = model(x, u1, u2, dt, L)
 
     t_end = time.time()
     fps.update(1/(t_end - t_start))
