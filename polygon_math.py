@@ -81,6 +81,7 @@ def get_points_in_polygon(xs, ys, pxs, pys):
     # Get all points that are inside polygon
     # Polygon is defined by the lines defined by xs and ys
     # Points are defined by pxs and pys
+    # TODO: KEEP TRACK OF ORDER OF THE POOINTS HERE
     intersection_xs = []
     intersection_ys = []
 
