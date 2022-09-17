@@ -286,9 +286,7 @@ while True:
     if ([], []) == get_polygon_intersection_points(car_xs, car_ys, map_xs, map_ys):
         x = x_temp
 
-
     t_end = time.time()
     fps.update(1/(t_end - t_start))
-
 
 
