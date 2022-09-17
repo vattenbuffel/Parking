@@ -3,7 +3,7 @@ from numpy import cos, sin, tan
 import pygame
 import time
 from rolling_average import RollingAverage
-from polygon_math import get_area_of_polygon, get_polygon_intersection_points, polygon_from_points
+from polygon_math import get_area_of_polygon, get_polygon_intersection_points, polygon_from_points, intersection_numba, point_at_t_numba
 import numba
 
 class ParkingArea:
@@ -45,7 +45,7 @@ class Wheel:
 
         pygame.draw.polygon(screen, BLACK, (p0, p1, p2, p3))
 
-@numba.njit
+#@numba.njit
 def model(x, u1, u2, dt, L):
     # x is state vector [x, y, theta, phi]
     # u1 is vel, u2 is steering ang
@@ -74,8 +74,8 @@ def pos_to_pix(x, y):
 def add_xy_and_offset(p, x, y):
     return p[0] + x + width/2, height/2 - y - 1 - p[1]
 
-@numba.njit
-def get_car_xs_ys(x, y, theta):
+#@numba.njit
+def get_car_corners(x, y, theta):
     h = car_height
     w = car_width
     theta0 = np.arctan2(h/2, w)   #angle at which p1 starts at
@@ -102,8 +102,6 @@ def draw_car(car_xs, car_ys):
     pygame.draw.polygon(screen, BLUE, (p0, p1, p2, p3))
 
 def get_car_parking_area_overlap(pa_xs, pa_ys, car_xs, car_ys):
-    car_xs.append(car_xs[0])
-    car_ys.append(car_ys[0])
     xs, ys = get_polygon_intersection_points(pa_xs, pa_ys, car_xs, car_ys)
     if xs != []:
         xs, ys = polygon_from_points(xs, ys)
@@ -113,26 +111,76 @@ def get_car_parking_area_overlap(pa_xs, pa_ys, car_xs, car_ys):
 
     return 0
 
+def draw_line(x0, y0, x1, y1):
+    p0 = pos_to_pix(x0, y0)
+    p1 = pos_to_pix(x1, y1)
+    pygame.draw.line(screen, BLACK, p0, p1)
+
+def draw_lines(xs, ys):
+    for i in range(len(xs)-1):
+        draw_line(xs[i], ys[i], xs[i+1], ys[i+1])
+
+@numba.njit
+def scan_numba(scan_n, car_theta, car_x, car_y, obstacle_xs, obstacle_ys):
+    scan_res = {}
+    for ang in np.linspace(0, np.deg2rad(360), scan_n):
+        x = car_x + np.cos(ang + car_theta)
+        y = car_y + np.sin(ang + car_theta)
+        l = car_x, car_y, x, y
+        for i in range(len(obstacle_xs)-1):
+            obstacle_x0, obstacle_y0 = obstacle_xs[i], obstacle_ys[i]
+            obstacle_x1, obstacle_y1 = obstacle_xs[i+1], obstacle_ys[i+1]
+
+            t1, t2 = intersection_numba(car_x, car_y, x, y, obstacle_x0, obstacle_y0, obstacle_x1, obstacle_y1)
+
+            if t1 >= 0 and t2 <= 1 and t2 >= 0:
+                p = point_at_t_numba(car_x, car_y, x, y, t1)
+                d = ((p[0] - car_x)**2 + (p[1] - car_y)**2)**0.5
+            else:
+                p = None
+                d = None
+
+            if ang not in scan_res:
+                scan_res[ang] = (d, l, p)
+            else:
+                if d is not None :
+                    if ang in scan_res:
+                        d0,_,_ = scan_res[ang]
+                        if d0 is None  or d < d0:
+                            scan_res[ang] = (d, l, p)
+                    else:
+                        scan_res[ang] = (d, l, p)
+
+    return  scan_res
+
+def draw_scan_res(scan_res):
+    for key in scan_res:
+        d, l, p = scan_res[key]
+        if p is not None:
+            draw_line(l[0], l[1], p[0], p[1])
+
+# @numba.njit
+def clean_pa_scan_lines(pa_scan, obstacle_scan):
+    for key in pa_scan:
+        obs_d, obs_l, obs_p = obstacle_scan[key]
+        pa_d, pa_l, pa_p = pa_scan[key]
+
+        if pa_d is None:
+            continue
+
+        if pa_d > obs_d:
+            pa_scan[key] = None, pa_l, None
 
 
-x = np.zeros((4, 1))
-u1 = 0
-u2 = 0
-dt = 0.001
-L = 80
 
 # width, height = (1280, 1280)
 width, height = (720, 720)
-arrow_size = 16
-car_width = L
-car_height = 50
-wheel_width = 30
-wheel_height = 10
 screen = pygame.display.set_mode((width,height))
 pygame.font.init()
 my_font = pygame.font.SysFont(None, 30)
 fps = RollingAverage(100)
 t_start = time.time()
+draw_scan_lines = False
 
 BLACK = (0,0,0)
 WHITE = (255,255,255)
@@ -141,12 +189,28 @@ BLUE = (0, 0, 255)
 GREEN = (0, 255, 0)
 size = (300, 300)
 
+
+x = np.zeros((4, 1))
+u1 = 0
+u2 = 0
+dt = 0.5
+L = 80
+car_width = L
+car_height = 50
+car_xs , car_ys = get_car_corners(x[0, 0], x[1, 0], x[2, 0])
+car_xs.append(car_xs[0]), car_ys.append(car_ys[0]) # Make the polygon closed
+
+wheel_width = 30
+wheel_height = 10
 wheel1 = Wheel(wheel_width, wheel_height, car_width - wheel_width/2 - 5, -car_height/2 + wheel_height/2 + 5)
 wheel2 = Wheel(wheel_width, wheel_height, car_width - wheel_width/2 - 5, car_height/2 - wheel_height/2 - 5)
 wheel3 = Wheel(wheel_width, wheel_height, wheel_width/2 + 5, car_height/2 - wheel_height/2 - 5)
 wheel4 = Wheel(wheel_width, wheel_height, wheel_width/2 + 5, -car_height/2 + wheel_height/2 + 5)
 
 pa = ParkingArea([100, 300, 300, 100, 100], [100, 100, 300, 300, 100])
+
+map_xs = [-350, 350, 350, 50, 50, -100, -100, -350, -350]
+map_ys  = [-350, -350, 350, 350, 100, 100, 350, 350, -350]
 
 
 while True:
@@ -160,13 +224,21 @@ while True:
     theta = x[2, 0]
     phi = x[3, 0]
 
-    car_xs , car_ys = get_car_xs_ys(x_, y, theta)
-    draw_car(car_xs.copy(), car_ys.copy())
-    # Draw wheels
+    map_scan_res = scan_numba(361, theta, x_, y, map_xs, map_ys)
+    pa_scan_res = scan_numba(361, theta, x_, y, pa.xs, pa.ys)
+    clean_pa_scan_lines(pa_scan_res, map_scan_res)
+
+    # Draw stuff
+    draw_car(car_xs[:-1], car_ys[:-1])
     wheel1.draw(x_, y, theta, phi)
     wheel2.draw(x_, y, theta, phi)
     wheel3.draw(x_, y, theta, 0)
     wheel4.draw(x_, y, theta, 0)
+    draw_lines(map_xs, map_ys)
+    if draw_scan_lines:
+        draw_scan_res(map_scan_res)
+        draw_scan_res(pa_scan_res)
+
 
     car_pa_overlap = get_car_parking_area_overlap(pa.xs, pa.ys, car_xs, car_ys)
     
@@ -205,12 +277,17 @@ while True:
                 u1 = 0
 
 
-
-    for i in range(100):
-        x = model(x, u1, u2, dt, L)
+    # Update car state and check for collision
+    x_temp = model(x, u1, u2, dt, L)
+    car_xs_temp, car_ys_temp = get_car_corners(x_temp[0, 0], x_temp[1, 0], x_temp[2, 0])
+    car_xs_temp.append(car_xs_temp[0]), car_ys_temp.append(car_ys_temp[0]) # Make the polygon closed
+    if ([], []) == get_polygon_intersection_points(car_xs_temp, car_ys_temp, map_xs, map_ys):
+        x = x_temp
+        car_xs, car_ys = car_xs_temp, car_ys_temp
+    else:
+        oaietnhoian =5
 
     t_end = time.time()
     fps.update(1/(t_end - t_start))
-
 
 
