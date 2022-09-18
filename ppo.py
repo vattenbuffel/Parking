@@ -27,15 +27,17 @@ class PPO:
         self.cov_mat = torch.diag(self.cov_var)
 
         self.render_i = 0
+        self.save_i = 0
 
     def init_hyperparameters(self):
-        self.timesteps_per_batch = 4800
-        self.max_timesteps_per_episode = 1600
-        self.gamma = 0.95
-        self.n_updates_per_iteration = 5
+        self.timesteps_per_batch = 2048
+        self.max_timesteps_per_episode = 200
+        self.gamma = 0.99
+        self.n_updates_per_iteration = 10
         self.clip = 0.2 # epsilon
-        self.learning_rate = 0.005
+        self.learning_rate = 3e-4
         self.render_every_i = 10
+        self.save_every_i = 100
 
     def get_action(self, obs):
         # Query the actor network for a mean action
@@ -89,32 +91,35 @@ class PPO:
         batch_rewards_to_go = []
         batch_lens = [] # episodic lengths in batch
 
-        ep_rewards = [] # Rewards this episode
-
-        obs = self.env.reset()
-        done = False
         t = 0
+        ep_rewards = []
 
-        for ep_t in range(self.max_timesteps_per_episode):
-            t += 1
-            if render:
-                env.render()
-            
-            batch_obs.append(obs)
+        while t < self.timesteps_per_batch:
+            ep_rewards = [] # Rewards this episode
 
-            action, log_prob = self.get_action(obs)
-            obs, reward, done, _ = self.env.step(action)
+            obs = self.env.reset()
+            done = False
 
-            ep_rewards.append(reward)
-            batch_actions.append(action)
-            batch_log_probs.append(log_prob)
+            for ep_t in range(self.max_timesteps_per_episode):
+                t += 1
+                if render:
+                    env.render()
+                
+                batch_obs.append(obs)
 
-            if done: 
-                break
+                action, log_prob = self.get_action(obs)
+                obs, reward, done, _ = self.env.step(action)
 
-        # Collect episodic length and rewards
-        batch_lens.append(ep_t + 1)
-        batch_rewards.append(ep_rewards)
+                ep_rewards.append(reward)
+                batch_actions.append(action)
+                batch_log_probs.append(log_prob)
+
+                if done: 
+                    break
+
+            # Collect episodic length and rewards
+            batch_lens.append(ep_t + 1)
+            batch_rewards.append(ep_rewards)
 
         # Convert to tensors
         batch_obs = torch.tensor(np.array(batch_obs), dtype=torch.float)
@@ -175,6 +180,13 @@ class PPO:
                 self.critic_optimizer.zero_grad()
                 critic_loss.backward()
                 self.critic_optimizer.step()
+            
+                if self.save_i % self.save_every_i == 0:
+                    torch.save(self.actor.state_dict(), f'./ppo_actor.pth')
+                    torch.save(self.critic.state_dict(), './ppo_critic.pth')
+                    self.save_i  = 0
+                else:
+                    self.save_i += 1
 
         return batch_rewards
 
@@ -185,9 +197,10 @@ if __name__ == '__main__':
     model = PPO(env)
     avg_reward = -1*10e10
     while avg_reward < 200:
-        reward = model.learn(10000)
+        reward = model.learn(1_000_000)
         avg_reward = np.mean(np.sum(reward, axis=1))
         print(f"avg_reward: {avg_reward}")
+        break
 
     oaietnhoian = 5
 
