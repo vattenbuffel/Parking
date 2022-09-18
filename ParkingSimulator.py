@@ -31,8 +31,7 @@ class ParkingSimulator:
         self.draw_scan_lines = False
 
 
-        self.x = None
-        self.reset()
+        self.x = np.zeros([4, 1])
         self.u1 = 0
         self.u2 = 0
         self.dt = 0.5
@@ -41,6 +40,7 @@ class ParkingSimulator:
         self.car_height = 50
         self.car_xs , self.car_ys = get_car_corners(self.x[0, 0], self.x[1, 0], self.x[2, 0], self.car_width, self.car_height)
         self.car_xs.append(self.car_xs[0]), self.car_ys.append(self.car_ys[0]) # Make the polygon closed
+        self.reward = -1
 
         wheel_width = 30
         wheel_height = 10
@@ -50,13 +50,24 @@ class ParkingSimulator:
         self.wheel4 = Wheel(wheel_width, wheel_height, wheel_width/2 + 5, -self.car_height/2 + wheel_height/2 + 5)
 
         self.pa = ParkingArea([100, 300, 300, 100, 100], [100, 100, 300, 300, 100])
-
         self.map_xs = [-350, 350, 350, 50, 50, -100, -100, -350, -350]
         self.map_ys  = [-350, -350, 350, 350, 100, 100, 350, 350, -350]
+
+        self.reset()
+
 
     def reset(self):
         # TODO Make it spawn at random locations
         self.x = np.zeros((4, 1))
+
+        self.map_scan_res = scan_numba(361, self.x[2, 0], self.x[0, 0], self.x[1, 0], self.map_xs, self.map_ys)
+        self.pa_scan_res = scan_numba(361, self.x[2, 0], self.x[0, 0], self.x[1, 0], self.pa.xs, self.pa.ys)
+        clean_pa_scan_lines(self.pa_scan_res, self.map_scan_res)
+
+        self.obs = create_obs(self.map_scan_res, self.pa_scan_res)
+        return self.obs
+
+
     def step(self, u1, u2):
         self.t_start = time.time()
 
@@ -78,7 +89,12 @@ class ParkingSimulator:
         self.pa_scan_res = scan_numba(361, theta, x_, y, self.pa.xs, self.pa.ys)
         clean_pa_scan_lines(self.pa_scan_res, self.map_scan_res)
 
-        # return obs, reward, done, unkown
+        obs = create_obs(self.map_scan_res, self.pa_scan_res)
+        self.reward = calculate_reward(self.pa_scan_res, self.x, self.pa.xs, self.pa.ys, self.car_pa_overlap)
+        done = False
+        unknown = None
+
+        return obs, self.reward, done, unknown
 
     def render(self):
         self.screen.fill(WHITE)
@@ -98,18 +114,56 @@ class ParkingSimulator:
         self.wheel4.draw(x_, y, theta, 0, self.screen)
         draw_lines(self.map_xs, self.map_ys, self.screen, self.width, self.height)
         if self.draw_scan_lines:
-            draw_scan_res(self.map_scan_res)
-            draw_scan_res(self.pa_scan_res)
+            draw_scan_res(self.map_scan_res, self.screen, self.width, self.height)
+        draw_scan_res(self.pa_scan_res, self.screen, self.width, self.height)
 
         t_end = time.time()
         self.fps.update(1/(t_end - self.t_start))
-        str_ = f"u1: {u1:.2f}, u2: {np.rad2deg(u2):.2f}, pa: {self.car_pa_overlap:.2f}, fps: {self.fps.get():.2f}"
+        str_ = f"u1: {u1:.2f}, u2: {np.rad2deg(u2):.2f}, pa: {self.car_pa_overlap:.2f}, fps: {self.fps.get():.2f}, reward: {self.reward:.2f}"
         text_surface = self.my_font.render(str_, True, BLACK)
         self.screen.blit(text_surface, (50,50))
 
         pygame.display.update()
 
-#@numba.njit
+@numba.njit
+def create_obs(obs_scan, pa_scan):
+    obs = np.zeros(len(obs_scan) + len(pa_scan))
+    i = 0
+    for key in obs_scan:
+        d, l, p = obs_scan[key]
+        obs[i] = d
+        i += 1
+    for key in pa_scan:
+        d, l, p = obs_scan[key]
+        obs[i] = d
+        i += 1
+    
+    return obs
+
+
+# @numba.njit
+def calculate_reward(pa_scan, x, pa_xs, pa_ys, pa_overlap):
+    weight_scan_line_touching_pa = 0
+    weight_pa_overlap = 0
+    weight_distance_to_pa = 1000
+    reward_distance_to_pa_max = 150
+
+    reward_pa_scan = 0
+    for key in pa_scan:
+        d, l, p = pa_scan[key]
+        if d == None:
+            continue
+        reward_pa_scan += weight_scan_line_touching_pa
+
+    reward_pa_overlap = pa_overlap * weight_pa_overlap
+    
+    d = np.maximum(1e-5, ((pa_xs[0] - x[0,0])**2 + (pa_ys[0] - x[1,0])**2)**0.5) # Calculate distance to first pa xs and ys point. Not the "true" distance, whatever that is, but good enough to encourage it to move closer, I think
+    reward_distance_to_pa = np.minimum(reward_distance_to_pa_max, 1/d*weight_distance_to_pa)
+
+    return reward_pa_scan + reward_pa_overlap + reward_distance_to_pa
+
+
+@numba.njit
 def model(x, u1, u2, dt, L):
     # x is state vector [x, y, theta, phi]
     # u1 is vel, u2 is steering ang
@@ -129,7 +183,7 @@ def model(x, u1, u2, dt, L):
     return x1
 
 
-#@numba.njit
+@numba.njit
 def get_car_corners(x, y, theta, car_width, car_height):
     h = car_height
     w = car_width
@@ -208,13 +262,13 @@ def scan_numba(scan_n, car_theta, car_x, car_y, obstacle_xs, obstacle_ys):
 
     return  scan_res
 
-def draw_scan_res(scan_res):
+def draw_scan_res(scan_res, screen, screen_width, screen_height):
     for key in scan_res:
         d, l, p = scan_res[key]
         if p is not None:
-            draw_line(l[0], l[1], p[0], p[1])
+            draw_line(l[0], l[1], p[0], p[1], screen, screen_width, screen_height)
 
-#@numba.njit
+@numba.njit
 def clean_pa_scan_lines(pa_scan, obstacle_scan):
     for key in pa_scan:
         obs_d, obs_l, obs_p = obstacle_scan[key]
