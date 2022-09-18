@@ -5,45 +5,21 @@ import time
 from rolling_average import RollingAverage
 from polygon_math import get_area_of_polygon, get_polygon_intersection_points, polygon_from_points, intersection_numba, point_at_t_numba
 import numba
+from common_functions import GREEN, BLACK, WHITE, BLUE, pos_to_pix
+from ParkingArea import ParkingArea
+from Wheel import Wheel
 
-class ParkingArea:
-    def __init__(self, xs, ys) -> None:
-        self.xs = xs
-        self.ys = ys
+"""
+Needed functions
 
-    def draw(self):
-        ps = tuple((pos_to_pix(self.xs[i], self.ys[i])) for i in range(len(self.xs)) )
-        pygame.draw.polygon(screen, GREEN, ps)
+env.observation_space.shape[0]
+env.action_space.shape[0]
+env.reset()
+env.render()
+obs, reward, done, _ env.step()
 
-class Wheel:
-    def __init__(self, w, h, x_offset_to_car, y_offset_to_car) -> None:
-        self.alpha = np.arctan2(h/2, w/2)
-        self.r = ((w/2)**2 + (h/2)**2)**0.5
-        self.x_offset_to_car = x_offset_to_car
-        self.y_offset_to_car = y_offset_to_car
-        self.d_offset_to_car = (x_offset_to_car**2 + y_offset_to_car**2)**0.5
-        self.alpha_offset_to_car = np.arctan2(y_offset_to_car, x_offset_to_car)
+"""
 
-    def draw(self, car_x, car_y, theta, phi):
-        r = self.r
-        alpha = self.alpha
-
-        p0 = (r * np.cos(theta + alpha + phi), r * np.sin(theta + alpha + phi))
-        p1 = (r * np.cos(theta + np.pi - alpha + phi), r * np.sin(theta + np.pi - alpha + phi))
-        p2 = (r * np.cos(theta + alpha + np.pi + phi), r * np.sin(theta + alpha + np.pi + phi))
-        p3 = (r * np.cos(theta - alpha + phi), r * np.sin(theta - alpha + phi))
-
-        d = self.d_offset_to_car
-        alpha = self.alpha_offset_to_car
-        x_offset = d * np.cos(alpha + theta)  
-        y_offset = d * np.sin(alpha + theta)  
-
-        p0 = add_xy_and_offset(p0, car_x+x_offset, car_y+y_offset)
-        p1 = add_xy_and_offset(p1, car_x+x_offset, car_y+y_offset)
-        p2 = add_xy_and_offset(p2, car_x+x_offset, car_y+y_offset)
-        p3 = add_xy_and_offset(p3, car_x+x_offset, car_y+y_offset)
-
-        pygame.draw.polygon(screen, BLACK, (p0, p1, p2, p3))
 
 #@numba.njit
 def model(x, u1, u2, dt, L):
@@ -65,15 +41,6 @@ def model(x, u1, u2, dt, L):
     return x1
 
 
-def pos_to_pix(x, y):
-    x += width/2
-    y = height - y - 1
-    y -= height/2
-    return x, y
-
-def add_xy_and_offset(p, x, y):
-    return p[0] + x + width/2, height/2 - y - 1 - p[1]
-
 #@numba.njit
 def get_car_corners(x, y, theta):
     h = car_height
@@ -94,10 +61,10 @@ def draw_car(car_xs, car_ys):
     p2 = (car_xs[2], car_ys[2])
     p3 = (car_xs[3], car_ys[3])
 
-    p0 = pos_to_pix(*p0)
-    p1 = pos_to_pix(*p1)
-    p2 = pos_to_pix(*p2)
-    p3 = pos_to_pix(*p3)
+    p0 = pos_to_pix(*p0, width, height)
+    p1 = pos_to_pix(*p1, width, height)
+    p2 = pos_to_pix(*p2, width, height)
+    p3 = pos_to_pix(*p3, width, height)
 
     pygame.draw.polygon(screen, BLUE, (p0, p1, p2, p3))
 
@@ -112,8 +79,8 @@ def get_car_parking_area_overlap(pa_xs, pa_ys, car_xs, car_ys):
     return 0
 
 def draw_line(x0, y0, x1, y1):
-    p0 = pos_to_pix(x0, y0)
-    p1 = pos_to_pix(x1, y1)
+    p0 = pos_to_pix(x0, y0, width, height)
+    p1 = pos_to_pix(x1, y1, width, height)
     pygame.draw.line(screen, BLACK, p0, p1)
 
 def draw_lines(xs, ys):
@@ -182,13 +149,6 @@ fps = RollingAverage(100)
 t_start = time.time()
 draw_scan_lines = False
 
-BLACK = (0,0,0)
-WHITE = (255,255,255)
-RED = (255, 0 ,0)
-BLUE = (0, 0, 255)
-GREEN = (0, 255, 0)
-size = (300, 300)
-
 
 x = np.zeros((4, 1))
 u1 = 0
@@ -217,7 +177,7 @@ while True:
     t_start = time.time()
 
     screen.fill(WHITE)
-    pa.draw()
+    pa.draw(screen)
 
     x_ = x[0, 0]
     y = x[1, 0]
@@ -230,10 +190,10 @@ while True:
 
     # Draw stuff
     draw_car(car_xs[:-1], car_ys[:-1])
-    wheel1.draw(x_, y, theta, phi)
-    wheel2.draw(x_, y, theta, phi)
-    wheel3.draw(x_, y, theta, 0)
-    wheel4.draw(x_, y, theta, 0)
+    wheel1.draw(x_, y, theta, phi, screen)
+    wheel2.draw(x_, y, theta, phi, screen)
+    wheel3.draw(x_, y, theta, 0, screen)
+    wheel4.draw(x_, y, theta, 0, screen)
     draw_lines(map_xs, map_ys)
     if draw_scan_lines:
         draw_scan_res(map_scan_res)
