@@ -206,22 +206,27 @@ def close_permutations(perms):
     
     return perms_closed
 
+@numba.njit
 def polygon_from_points(xs, ys):
     # Return a simple polygon consiting of points given by xs and ys
 
-    # Create all possible combinations of verticies
-    perms = set(permutations(range(len(xs))))
-    perms_closed = close_permutations(perms)
+    x, y = xs[0], ys[0]
+    x_res = [x]
+    y_res = [y]
+    xs, ys = np.array(xs[1:]), np.array(ys[1:])
 
-    for perm in perms_closed:
-        if perm_polygon_is_convex(xs, ys, perm):
-            xs_, ys_ = [], []
-            for i in perm:
-                xs_.append(xs[i])
-                ys_.append(ys[i])
-            return  xs_, ys_
-    
-    assert False, "There must be a convex simple polygon"
+    for _ in range(len(xs)):
+        i = np.argmax(np.arctan2(ys- y, xs- x))
+
+        x_res.append(xs[i])
+        y_res.append(ys[i])
+        xs = np.delete(xs, i)
+        ys = np.delete(ys, i)
+
+    x_res.append(x_res[0])
+    y_res.append(y_res[0])
+
+    return x_res, y_res
 
 @numba.njit
 def determinant_2d(a, b, c, d):
