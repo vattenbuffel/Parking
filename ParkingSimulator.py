@@ -79,7 +79,7 @@ class ParkingSimulator:
         # u1u2 is a vector of u1 and u2. u1 and u2 are values between -1 and 1 giving the percentage value between min and max
         self.t_start = time.time()
 
-        self.u1, self.u2 = u1u2[0], u1u2[1]
+        self.u1, self.u2 = u1u2[0]*5, u1u2[1]*np.deg2rad(30) # Change 5 and 30 to be params
 
         # Update car state and check for collision
         x_temp = model(self.x, self.u1, self.u2, self.dt, self.L)
@@ -186,8 +186,8 @@ def clip(val, min_, max_):
 def model(x, u1, u2, dt, L):
     # x is state vector [x, y, theta, phi]
     # u1 is vel, u2 is steering ang
-    u1 = clip(u1*5, -5, 5) # Change 5 to be param
-    u2 = clip(u2*np.deg2rad(30), -np.deg2rad(30), np.deg2rad(30)) # Change 30 to be param
+    u1 = clip(u1, -5, 5) # Change 5 to be param
+    u2 = clip(u2, -np.deg2rad(30), np.deg2rad(30)) # Change 30 to be param
 
     theta = x[2, 0]
 
