@@ -4,6 +4,7 @@ import torch
 from torch.optim import Adam
 import torch.nn as nn
 import numpy as np
+import time
 
 class PPO:
     def __init__(self, env) -> None:
@@ -29,6 +30,16 @@ class PPO:
         self.render_i = 0
         self.save_i = 0
 
+        # This logger will help us with printing out summaries of each iteration
+        self.logger = {
+            'delta_t': time.time_ns(),
+            't_so_far': 0,          # timesteps so far
+            'i_so_far': 0,          # iterations so far
+            'batch_lens': [],       # episodic lengths in batch
+            'batch_rews': [],       # episodic returns in batch
+            'actor_losses': [],     # losses of actor network in current iteration
+        }
+
     def init_hyperparameters(self):
         self.timesteps_per_batch = 2048
         self.max_timesteps_per_episode = 200
@@ -36,7 +47,7 @@ class PPO:
         self.n_updates_per_iteration = 10
         self.clip = 0.2 # epsilon
         self.learning_rate = 3e-4
-        self.render_every_i = 10
+        self.render_every_i = 100
         self.save_every_i = 100
 
     def get_action(self, obs):
@@ -82,7 +93,7 @@ class PPO:
 
         return V, log_probs
 
-    def rollout(self, render):
+    def rollout(self):
         # Batch data
         batch_obs = []
         batch_actions = []
@@ -96,6 +107,13 @@ class PPO:
 
         while t < self.timesteps_per_batch:
             ep_rewards = [] # Rewards this episode
+
+            if self.render_i == self.render_every_i:
+                self.render_i = 0
+                render = True
+            else:
+                self.render_i += 1
+                render = False
 
             obs = self.env.reset()
             done = False
@@ -128,25 +146,29 @@ class PPO:
 
         batch_rewards_to_go = self.compute_batch_rewards_to_go(batch_rewards)
 
+        # Log the episodic returns and episodic lengths in this batch.
+        self.logger['batch_rews'] = batch_rewards
+        self.logger['batch_lens'] = batch_lens
+
         return batch_obs, batch_actions, batch_log_probs, batch_rewards, batch_rewards_to_go, batch_lens
 
     def learn(self, total_timesteps):
         t_so_far = 0 # Number of simulated timesteps
         batch_rewards = []
+        i_so_far = 0
 
         # Wrap up your game into a class noa
 
         while t_so_far < total_timesteps:
-            if self.render_i == self.render_every_i:
-                self.render_i = 0
-                render = True
-            else:
-                self.render_i += 1
-                render = False
-            batch_observations, batch_actions, batch_log_probs, batch_rewards_new, batch_rewards_to_go, batch_lens = self.rollout(render)
+            batch_observations, batch_actions, batch_log_probs, batch_rewards_new, batch_rewards_to_go, batch_lens = self.rollout()
             batch_rewards.extend(batch_rewards_new)
 
             t_so_far += np.sum(batch_lens)
+
+            i_so_far += 1
+			# Logging timesteps so far and iterations so far
+            self.logger['t_so_far'] = t_so_far
+            self.logger['i_so_far'] = i_so_far
 
             # Calculate V_{phi, k}
             V, _ = self.evaluate(batch_observations, batch_actions)
@@ -181,14 +203,66 @@ class PPO:
                 critic_loss.backward()
                 self.critic_optimizer.step()
             
-                if self.save_i % self.save_every_i == 0:
-                    torch.save(self.actor.state_dict(), f'./ppo_actor.pth')
-                    torch.save(self.critic.state_dict(), './ppo_critic.pth')
-                    self.save_i  = 0
-                else:
-                    self.save_i += 1
+                self.logger['actor_losses'].append(actor_loss.detach())
+            
+            # Print a summary of our training so far
+            self._log_summary()
+
+            if self.save_i % self.save_every_i == 0:
+                torch.save(self.actor.state_dict(), f'./ppo_actor.pth')
+                torch.save(self.critic.state_dict(), './ppo_critic.pth')
+                self.save_i  = 0
+            else:
+                self.save_i += 1
+
 
         return batch_rewards
+
+    def _log_summary(self):
+        """
+            Print to stdout what we've logged so far in the most recent batch.
+
+            Parameters:
+                None
+
+            Return:
+                None
+        """
+        # Calculate logging values. I use a few python shortcuts to calculate each value
+        # without explaining since it's not too important to PPO; feel free to look it over,
+        # and if you have any questions you can email me (look at bottom of README)
+        delta_t = self.logger['delta_t']
+        self.logger['delta_t'] = time.time_ns()
+        delta_t = (self.logger['delta_t'] - delta_t) / 1e9
+        delta_t = str(round(delta_t, 2))
+
+        t_so_far = self.logger['t_so_far']
+        i_so_far = self.logger['i_so_far']
+        avg_ep_lens = np.mean(self.logger['batch_lens'])
+        avg_ep_rews = np.mean([np.sum(ep_rews) for ep_rews in self.logger['batch_rews']])
+        avg_actor_loss = np.mean([losses.float().mean() for losses in self.logger['actor_losses']])
+
+        # Round decimal places for more aesthetic logging messages
+        avg_ep_lens = str(round(avg_ep_lens, 2))
+        avg_ep_rews = str(round(avg_ep_rews, 2))
+        avg_actor_loss = str(round(avg_actor_loss, 5))
+
+        # Print logging statements
+        print(flush=True)
+        print(f"-------------------- Iteration #{i_so_far} --------------------", flush=True)
+        print(f"Average Episodic Length: {avg_ep_lens}", flush=True)
+        print(f"Average Episodic Return: {avg_ep_rews}", flush=True)
+        print(f"Average Loss: {avg_actor_loss}", flush=True)
+        print(f"Timesteps So Far: {t_so_far}", flush=True)
+        print(f"Iteration took: {delta_t} secs", flush=True)
+        print(f"------------------------------------------------------", flush=True)
+        print(flush=True)
+
+        # Reset batch-specific logging data
+        self.logger['batch_lens'] = []
+        self.logger['batch_rews'] = []
+        self.logger['actor_losses'] = []
+
 
 
 if __name__ == '__main__':
@@ -197,7 +271,7 @@ if __name__ == '__main__':
     model = PPO(env)
     avg_reward = -1*10e10
     while avg_reward < 200:
-        reward = model.learn(1_000_000)
+        reward = model.learn(100_000)
         avg_reward = np.mean(np.sum(reward, axis=1))
         print(f"avg_reward: {avg_reward}")
         break
