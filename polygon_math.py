@@ -45,11 +45,11 @@ def intersection_numba(xa0, ya0, xa1, ya1, xb0, yb0, xb1, yb1):
 
     return t1, t2
 
-#@numba.njit
+@numba.njit
 def cross_2d_numba(x0, y0, x1, y1):
     return (x0 * y1) - (y0 * x1)
 
-#@numba.njit
+@numba.njit
 def which_side_of_line(x0, y0, x1, y1, px, py):
     # Return a negative or positive number based on which side p is of l
     l1x = x1 - x0
@@ -60,7 +60,7 @@ def which_side_of_line(x0, y0, x1, y1, px, py):
     return cross_2d_numba(l1x, l1y, l2x, l2y)
 
 
-#@numba.njit
+@numba.njit
 def point_in_polygon(xs, ys, px, py):
     assert xs[0] == xs[-1]
     assert ys[0] == ys[-1]
@@ -74,7 +74,7 @@ def point_in_polygon(xs, ys, px, py):
 
     return True
 
-#@numba.njit
+@numba.njit
 def get_points_in_polygon(xs, ys, pxs, pys):
     assert xs[0] == xs[-1]
     assert ys[0] == ys[-1]
@@ -94,7 +94,7 @@ def get_points_in_polygon(xs, ys, pxs, pys):
     
     return intersection_xs, intersection_ys
 
-#@numba.njit
+@numba.njit
 def get_intersections_between_lines(xsa, ysa, xsb, ysb, remove_duplicates=True):
     # line0 = (xsa[0], ysa[0], xsa[1], ysa[1])
     # line1 = (xsa[1], ysa[1], xsa[2], ysa[2])
@@ -127,7 +127,7 @@ def get_intersections_between_lines(xsa, ysa, xsb, ysb, remove_duplicates=True):
 
     return xs, ys
 
-#@numba.njit
+@numba.njit
 def get_polygon_intersection_points(xsa, ysa, xsb, ysb):
     # Given 2 polygons return all points that make up the intersetion
     assert xsa[0] == xsa[-1]
@@ -145,12 +145,12 @@ def get_polygon_intersection_points(xsa, ysa, xsb, ysb):
     return xs, ys
 
 
-#@numba.njit
+@numba.njit
 def is_close(val1, val2):
     return np.abs(val1 - val2) < 1e-10
 
 
-#@numba.njit
+@numba.njit
 def polygon_is_convex(xs, ys):
     # See if polygon given by xs and ys is convex by checking if any of the lines overlap
     assert xs[0] == xs[-1]
@@ -183,7 +183,7 @@ def polygon_is_convex(xs, ys):
     return True
 
 
-#@numba.njit
+@numba.njit
 def perm_polygon_is_convex(xs, ys, perm):
     xs_, ys_ = [], []
     for i in perm:
@@ -196,7 +196,7 @@ def perm_polygon_is_convex(xs, ys, perm):
     
             
 
-#@numba.njit
+@numba.njit
 def close_permutations(perms):
     perms_closed = []
     for p in perms:
@@ -223,11 +223,11 @@ def polygon_from_points(xs, ys):
     
     assert False, "There must be a convex simple polygon"
 
-#@numba.njit
+@numba.njit
 def determinant_2d(a, b, c, d):
     return a*d - b*c
 
-#@numba.njit
+@numba.njit
 def get_area_of_polygon(xs, ys):
     assert xs[0] == xs[-1]
     assert ys[0] == ys[-1]

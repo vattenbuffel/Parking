@@ -55,6 +55,13 @@ class ParkingSimulator:
 
         self.reset()
 
+        # I don't really know what this is but it's needed for compbability with gym
+        class space:
+            def __init__(self, shape_size) -> None:
+                self.shape = [shape_size]
+        self.observation_space = space(361*2) # Change 361 to be a param
+        self.action_space = space(2)
+
 
     def reset(self):
         # TODO Make it spawn at random locations
@@ -68,11 +75,14 @@ class ParkingSimulator:
         return self.obs
 
 
-    def step(self, u1, u2):
+    def step(self, u1u2):
+        # u1u2 is a vector of u1 and u2. u1 and u2 are values between -1 and 1 giving the percentage value between min and max
         self.t_start = time.time()
 
+        self.u1, self.u2 = u1u2[0], u1u2[1]
+
         # Update car state and check for collision
-        x_temp = model(self.x, u1, u2, self.dt, self.L)
+        x_temp = model(self.x, self.u1, self.u2, self.dt, self.L)
         car_xs_temp, car_ys_temp = get_car_corners(x_temp[0, 0], x_temp[1, 0], x_temp[2, 0], self.car_width, self.car_height)
         car_xs_temp.append(car_xs_temp[0]), car_ys_temp.append(car_ys_temp[0]) # Make the polygon closed
         if ([], []) == get_polygon_intersection_points(car_xs_temp, car_ys_temp, self.map_xs, self.map_ys):
@@ -85,7 +95,7 @@ class ParkingSimulator:
         y = self.x[1, 0]
         theta = self.x[2, 0]
 
-        self.map_scan_res = scan_numba(361, theta, x_, y, self.map_xs, self.map_ys)
+        self.map_scan_res = scan_numba(361, theta, x_, y, self.map_xs, self.map_ys)# Change 361 to be a parm
         self.pa_scan_res = scan_numba(361, theta, x_, y, self.pa.xs, self.pa.ys)
         clean_pa_scan_lines(self.pa_scan_res, self.map_scan_res)
 
@@ -96,7 +106,8 @@ class ParkingSimulator:
 
         return obs, self.reward, done, unknown
 
-    def render(self):
+    def render(self, consume_events=True):
+        # consume events is needed to be done when training
         self.screen.fill(WHITE)
         self.pa.draw(self.screen)
 
@@ -115,15 +126,20 @@ class ParkingSimulator:
         draw_lines(self.map_xs, self.map_ys, self.screen, self.width, self.height)
         if self.draw_scan_lines:
             draw_scan_res(self.map_scan_res, self.screen, self.width, self.height)
-        draw_scan_res(self.pa_scan_res, self.screen, self.width, self.height)
+            draw_scan_res(self.pa_scan_res, self.screen, self.width, self.height)
 
         t_end = time.time()
         self.fps.update(1/(t_end - self.t_start))
-        str_ = f"u1: {u1:.2f}, u2: {np.rad2deg(u2):.2f}, pa: {self.car_pa_overlap:.2f}, fps: {self.fps.get():.2f}, reward: {self.reward:.2f}"
+        str_ = f"u1: {self.u1:.2f}, u2: {np.rad2deg(self.u2):.2f}, pa: {self.car_pa_overlap:.2f}, fps: {self.fps.get():.2f}, reward: {self.reward:.2f}"
         text_surface = self.my_font.render(str_, True, BLACK)
         self.screen.blit(text_surface, (50,50))
 
         pygame.display.update()
+
+        if consume_events:
+            for _ in pygame.event.get():
+                pass
+
 
 @numba.njit
 def create_obs(obs_scan, pa_scan):
@@ -141,7 +157,7 @@ def create_obs(obs_scan, pa_scan):
     return obs
 
 
-# @numba.njit
+@numba.njit
 def calculate_reward(pa_scan, x, pa_xs, pa_ys, pa_overlap):
     weight_scan_line_touching_pa = 0
     weight_pa_overlap = 0
@@ -162,11 +178,16 @@ def calculate_reward(pa_scan, x, pa_xs, pa_ys, pa_overlap):
 
     return reward_pa_scan + reward_pa_overlap + reward_distance_to_pa
 
+@numba.njit
+def clip(val, min_, max_):
+    return np.minimum(max_, np.maximum(min_, val))
 
 @numba.njit
 def model(x, u1, u2, dt, L):
     # x is state vector [x, y, theta, phi]
     # u1 is vel, u2 is steering ang
+    u1 = clip(u1*5, -5, 5) # Change 5 to be param
+    u2 = clip(u2*np.deg2rad(30), -np.deg2rad(30), np.deg2rad(30)) # Change 30 to be param
 
     theta = x[2, 0]
 
@@ -294,13 +315,13 @@ if __name__ == '__main__':
                 sys.exit(0)
             elif events.type == pygame.KEYDOWN:
                 if events.dict['unicode'] == 'w':
-                    u1 = 5
+                    u1 = 1
                 elif events.dict['unicode'] == 'a':
-                    u2 = np.deg2rad(30)
+                    u2 = 1
                 elif events.dict['unicode'] == 'd':
-                    u2 = np.deg2rad(-30)
+                    u2 = -1
                 elif events.dict['unicode'] == 's':
-                    u1 = -5
+                    u1 = -1
                 elif events.dict['unicode'] == '\x1b': # esc
                     exit(0)
                 elif events.dict['unicode'] == '\x1b': # esc
@@ -317,6 +338,6 @@ if __name__ == '__main__':
                 elif events.dict['unicode'] == 's':
                     u1 = 0
 
-        env.step(u1, u2)
-        env.render()
+        env.step((u1, u2))
+        env.render(consume_events=False)
 

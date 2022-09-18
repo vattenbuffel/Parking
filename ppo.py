@@ -22,7 +22,7 @@ class PPO:
 
         # Create our variable for the matrix.
         # Note that I chose 0.5 for stdev arbitrarily.
-        self.cov_var = torch.full(size=(self.act_dim,), fill_value=0.5)
+        self.cov_var = torch.full(size=(self.act_dim,), fill_value=0.3)
 
         # Create the covariance matrix
         self.cov_mat = torch.diag(self.cov_var)
@@ -47,7 +47,7 @@ class PPO:
         self.n_updates_per_iteration = 10
         self.clip = 0.2 # epsilon
         self.learning_rate = 3e-4
-        self.render_every_i = 100
+        self.render_every_i = 25
         self.save_every_i = 100
 
     def get_action(self, obs):
@@ -121,7 +121,7 @@ class PPO:
             for ep_t in range(self.max_timesteps_per_episode):
                 t += 1
                 if render:
-                    env.render()
+                    self.env.render()
                 
                 batch_obs.append(obs)
 
@@ -269,12 +269,7 @@ if __name__ == '__main__':
     import gym
     env = gym.make('Pendulum-v0')
     model = PPO(env)
-    avg_reward = -1*10e10
-    while avg_reward < 200:
-        reward = model.learn(100_000)
-        avg_reward = np.mean(np.sum(reward, axis=1))
-        print(f"avg_reward: {avg_reward}")
-        break
+    while True:
+        model.learn(100_000)
 
-    oaietnhoian = 5
 
