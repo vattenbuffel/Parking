@@ -159,7 +159,7 @@ def draw_scan_res(scan_res):
         if p is not None:
             draw_line(l[0], l[1], p[0], p[1])
 
-# @numba.njit
+#@numba.njit
 def clean_pa_scan_lines(pa_scan, obstacle_scan):
     for key in pa_scan:
         obs_d, obs_l, obs_p = obstacle_scan[key]
