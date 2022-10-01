@@ -14,8 +14,8 @@ class PPO:
         self.obs_dim = env.observation_space.shape[0]
         self.act_dim = env.action_space.shape[0]
 
-        self.actor = FeedForwardNN(self.obs_dim, self.act_dim) # Figures out the action
-        self.critic = FeedForwardNN(self.obs_dim, 1) # Figures out the value of the action
+        self.actor = FeedForwardNN(self.obs_dim, self.act_dim, True) # Figures out the action
+        self.critic = FeedForwardNN(self.obs_dim, 1, False) # Figures out the value of the action
         self.actor_optimizer = Adam(self.actor.parameters(), lr=self.learning_rate)
         self.critic_optimizer = Adam(self.critic.parameters(), lr=self.learning_rate)
 
@@ -42,13 +42,13 @@ class PPO:
 
     def init_hyperparameters(self):
         self.timesteps_per_batch = 2048
-        self.max_timesteps_per_episode = 200
-        self.gamma = 0.99
+        self.max_timesteps_per_episode = 500
+        self.gamma = 0.95
         self.n_updates_per_iteration = 10
         self.clip = 0.2 # epsilon
         self.learning_rate = 3e-4
         self.render_every_i = 25
-        self.save_every_i = 100
+        self.save_every_i = 1
 
     def get_action(self, obs):
         # Query the actor network for a mean action

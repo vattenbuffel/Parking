@@ -3,22 +3,12 @@ from numpy import cos, sin, tan
 import pygame
 import time
 from rolling_average import RollingAverage
-from polygon_math import get_area_of_polygon, get_polygon_intersection_points, polygon_from_points, intersection_numba, point_at_t_numba
+from polygon_math import get_area_of_polygon, get_polygon_intersection_points, point_in_polygon, polygon_from_points, intersection_numba, point_at_t_numba
 import numba
 from common_functions import GREEN, BLACK, WHITE, BLUE, pos_to_pix
 from ParkingArea import ParkingArea
 from Wheel import Wheel
 
-"""
-Needed functions
-
-env.observation_space.shape[0]
-env.action_space.shape[0]
-env.reset()
-env.render()
-obs, reward, done, _ env.step()
-
-"""
 
 class ParkingSimulator:
     def __init__(self) -> None:
@@ -50,6 +40,7 @@ class ParkingSimulator:
         self.wheel4 = Wheel(wheel_width, wheel_height, wheel_width/2 + 5, -self.car_height/2 + wheel_height/2 + 5)
 
         self.pa = ParkingArea([100, 300, 300, 100, 100], [100, 100, 300, 300, 100])
+        self.car_pa_overlap = -1
         self.map_xs = [-350, 350, 350, 50, 50, -100, -100, -350, -350]
         self.map_ys  = [-350, -350, 350, 350, 100, 100, 350, 350, -350]
 
@@ -59,25 +50,44 @@ class ParkingSimulator:
         class space:
             def __init__(self, shape_size) -> None:
                 self.shape = [shape_size]
-        self.observation_space = space(361*2) # Change 361 to be a param
+        self.observation_space = space(1) # Change 361 to be a param
+        # self.observation_space = space(361*2+3) # Change 361 to be a param
+        
         self.action_space = space(2)
 
 
     def reset(self):
-        # TODO Make it spawn at random locations
+        # TODO Make it spawn at random locations. To do this restructure obstacles and map to be convex
         self.x = np.zeros((4, 1))
+
+        # Do this better...
+        # self.x[0,0] = np.random.randint(-100, 100)
+        # self.x[1,0] = np.random.randint(-100, 100)
+        # self.x[2,0] = np.random.randint(0, 360)
+        # while True:
+        #     self.x[0,0] = np.random.randint(-self.width/2, self.width/2)
+        #     self.x[1,0] = np.random.randint(-self.height/2, self.height/2)
+        #     self.x[2,0] = np.random.randint(0, 360)
+
+        #     xs, ys = get_car_corners(self.x[0,0], self.x[1, 0], self.x[3, 0], self.car_width, self.car_height)
+
+        #     if valid_position(xs, ys, self.map_xs, self.map_ys):
+        #         break
+
 
         self.map_scan_res = scan_numba(361, self.x[2, 0], self.x[0, 0], self.x[1, 0], self.map_xs, self.map_ys)
         self.pa_scan_res = scan_numba(361, self.x[2, 0], self.x[0, 0], self.x[1, 0], self.pa.xs, self.pa.ys)
         clean_pa_scan_lines(self.pa_scan_res, self.map_scan_res)
 
-        self.obs = create_obs(self.map_scan_res, self.pa_scan_res)
+        self.obs = create_obs(self.map_scan_res, self.pa_scan_res, self.x)
         return self.obs
 
 
     def step(self, u1u2):
         # u1u2 is a vector of u1 and u2. u1 and u2 are values between -1 and 1 giving the percentage value between min and max
         self.t_start = time.time()
+        if isinstance(u1u2, np.ndarray):
+            u1u2 = u1u2.reshape(-1)
 
         self.u1, self.u2 = u1u2[0]*5, u1u2[1]*np.deg2rad(30) # Change 5 and 30 to be params
 
@@ -95,11 +105,11 @@ class ParkingSimulator:
         y = self.x[1, 0]
         theta = self.x[2, 0]
 
-        self.map_scan_res = scan_numba(361, theta, x_, y, self.map_xs, self.map_ys)# Change 361 to be a parm
-        self.pa_scan_res = scan_numba(361, theta, x_, y, self.pa.xs, self.pa.ys)
-        clean_pa_scan_lines(self.pa_scan_res, self.map_scan_res)
+        # self.map_scan_res = scan_numba(361, theta, x_, y, self.map_xs, self.map_ys)# Change 361 to be a parm
+        # self.pa_scan_res = scan_numba(361, theta, x_, y, self.pa.xs, self.pa.ys)
+        # clean_pa_scan_lines(self.pa_scan_res, self.map_scan_res)
 
-        obs = create_obs(self.map_scan_res, self.pa_scan_res)
+        obs = create_obs(self.map_scan_res, self.pa_scan_res, self.x)
         self.reward = calculate_reward(self.pa_scan_res, self.x, self.pa.xs, self.pa.ys, self.car_pa_overlap)
         done = False
         unknown = None
@@ -140,43 +150,59 @@ class ParkingSimulator:
             for _ in pygame.event.get():
                 pass
 
-
 @numba.njit
-def create_obs(obs_scan, pa_scan):
-    obs = np.zeros(len(obs_scan) + len(pa_scan))
-    i = 0
-    for key in obs_scan:
-        d, l, p = obs_scan[key]
-        obs[i] = d
-        i += 1
-    for key in pa_scan:
-        d, l, p = obs_scan[key]
-        obs[i] = d
-        i += 1
+def valid_position(car_xs, car_ys, map_xs, map_ys):
+    # this doesn't work as point_in_polygon needs the polygon to be convex and map is not
+    for i in range(len(car_xs)):
+        if not point_in_polygon(map_xs, map_ys, car_xs[i], car_ys[i]):
+            return False
+
+    return True
+
+# @numba.njit
+def create_obs(obs_scan, pa_scan, x):
+    # obs = np.zeros(len(obs_scan) + len(pa_scan) + 3)
+    # i = 0
+    # for key in obs_scan:
+    #     d, l, p = obs_scan[key]
+    #     obs[i] = d
+    #     i += 1
+    # for key in pa_scan:
+    #     d, l, p = obs_scan[key]
+    #     obs[i] = d
+    #     i += 1
+
+    # obs[i] = x[0,0]
+    # obs[i+1] = x[1,0]
+    # obs[i+2] = x[2,0]
+
+    # return obs
+
+    return x[0]
     
-    return obs
 
 
 @numba.njit
 def calculate_reward(pa_scan, x, pa_xs, pa_ys, pa_overlap):
-    weight_scan_line_touching_pa = 0
-    weight_pa_overlap = 0
-    weight_distance_to_pa = 1000
-    reward_distance_to_pa_max = 150
+    # weight_scan_line_touching_pa = 0
+    # weight_pa_overlap = 0
+    # weight_distance_to_pa = 1000
+    # reward_distance_to_pa_max = 150
 
-    reward_pa_scan = 0
-    for key in pa_scan:
-        d, l, p = pa_scan[key]
-        if d == None:
-            continue
-        reward_pa_scan += weight_scan_line_touching_pa
+    # reward_pa_scan = 0
+    # for key in pa_scan:
+    #     d, l, p = pa_scan[key]
+    #     if d == None:
+    #         continue
+    #     reward_pa_scan += weight_scan_line_touching_pa
 
-    reward_pa_overlap = pa_overlap * weight_pa_overlap
+    # reward_pa_overlap = pa_overlap * weight_pa_overlap
     
-    d = np.maximum(1e-5, ((pa_xs[0] - x[0,0])**2 + (pa_ys[0] - x[1,0])**2)**0.5) # Calculate distance to first pa xs and ys point. Not the "true" distance, whatever that is, but good enough to encourage it to move closer, I think
-    reward_distance_to_pa = np.minimum(reward_distance_to_pa_max, 1/d*weight_distance_to_pa)
+    # d = np.maximum(1e-5, ((pa_xs[0] - x[0,0])**2 + (pa_ys[0] - x[1,0])**2)**0.5) # Calculate distance to first pa xs and ys point. Not the "true" distance, whatever that is, but good enough to encourage it to move closer, I think
+    # reward_distance_to_pa = np.minimum(reward_distance_to_pa_max, 1/d*weight_distance_to_pa)
 
-    return reward_pa_scan + reward_pa_overlap + reward_distance_to_pa
+    # return reward_pa_scan + reward_pa_overlap + reward_distance_to_pa
+    return x[0, 0]
 
 @numba.njit
 def clip(val, min_, max_):
@@ -231,9 +257,10 @@ def draw_car(car_xs, car_ys, screen, screen_width, screen_height):
 
     pygame.draw.polygon(screen, BLUE, (p0, p1, p2, p3))
 
+# @numba.njit
 def get_car_parking_area_overlap(pa_xs, pa_ys, car_xs, car_ys):
     xs, ys = get_polygon_intersection_points(pa_xs, pa_ys, car_xs, car_ys)
-    if xs != []:
+    if xs != []:# Do something here to make this numba compatible
         xs, ys = polygon_from_points(xs, ys)
         intersection_area = get_area_of_polygon(xs, ys)
         car_area = get_area_of_polygon(car_xs, car_ys)

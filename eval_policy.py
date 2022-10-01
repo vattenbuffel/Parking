@@ -1,9 +1,9 @@
-import gym
+from ParkingSimulator import ParkingSimulator
 from network import FeedForwardNN
 import torch
 
-env = gym.make('Pendulum-v0')
-actor = FeedForwardNN(env.observation_space.shape[0], env.action_space.shape[0])
+env = ParkingSimulator()
+actor = FeedForwardNN(env.observation_space.shape[0], env.action_space.shape[0], is_actor=True)
 
 actor.load_state_dict(torch.load('ppo_actor.pth'))
 

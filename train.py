@@ -2,5 +2,4 @@ from ppo import PPO
 from ParkingSimulator import ParkingSimulator
 
 model = PPO(ParkingSimulator())
-while True:
-    model.learn(100_000)
+model.learn(1_00_000)
